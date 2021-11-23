@@ -3,12 +3,17 @@ from torch import nn
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
 
-from utils import load_vectorized_data, reshape_conditioned_vectors
+from utils import load_vectorized_data, reshape_conditioned_vectors, color_features
 from flow import train
 
 if torch.cuda.is_available():
   device = torch.device('cuda:0')
   torch.cuda.set_device(device)
+
+epochs = 50
+wd_rate = 1.0e-6
+conditioning_criteria = 'color'
+conditional = True
 
 # load data
 train_data, validation_data, test_data = load_vectorized_data()
@@ -25,16 +30,15 @@ test_x = test_data[0]
 test_labels = test_data[1]
 test_y = test_data[2]
 
-# reshape conditioned data
-conditioned_train_X = reshape_conditioned_vectors(train_x, train_y, train_labels)
-conditioned_val_X = reshape_conditioned_vectors(val_x, val_y, val_labels)
+if conditioning_criteria == 'color':
+  (train_x, train_y) = color_features(train_x, randomize=True)
+  (val_x, val_y) = color_features(val_x, randomize=True)
 
-# convert data to tensors
-tt_train_x = torch.tensor(conditioned_train_X, dtype=torch.float32)
+tt_train_x = torch.tensor(train_x, dtype=torch.float32)
 tt_train_y = torch.tensor(train_y, dtype=torch.float32)
 tt_train_labels = torch.tensor(train_labels, dtype=torch.float32)
 
-tt_val_x = torch.tensor(conditioned_val_X, dtype=torch.float32)
+tt_val_x = torch.tensor(val_x, dtype=torch.float32)
 tt_val_y = torch.tensor(val_y, dtype=torch.float32)
 tt_val_labels = torch.tensor(val_labels, dtype=torch.float32)
 
@@ -50,14 +54,11 @@ if torch.cuda.is_available():
 train_set = TensorDataset(tt_train_x, tt_train_y, tt_train_labels)
 val_set = TensorDataset(tt_val_x, tt_val_y, tt_val_labels)
 
-# initialize data loaders
 batch_size = 100
 train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=0)
 val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=0)
 
 # train the model
-epochs = 50
-wd_rate = 1.0e-6
 model = train(tt_train_x, 
               train_labels, 
               train_loader, 
@@ -65,4 +66,5 @@ model = train(tt_train_x,
               maxepochs=epochs, 
               weight_decay=wd_rate,
               show_epoch_loss_progress=True,
-              conditional=True)
+              conditional=conditional,
+              conditioning_criteria=conditioning_criteria)

@@ -89,3 +89,24 @@ def reshape_conditioned_vectors(inputs, outputs, labels):
   
   flatten_cond_inputs = cond_inputs.reshape(cond_inputs.shape[0], 10*28*28)
   return flatten_cond_inputs
+
+
+def color_features(input, randomize=False):
+  np.random.seed(42)
+  colors = []
+  colored_input = np.zeros((input.shape[0], 3, input.shape[1]))
+
+  if randomize:
+    rng = np.random.RandomState(42)
+    colored_input = dequantize(colored_input, rng)
+
+  for i in range(len(input))[:]:
+    r = np.random.permutation([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    # print(r[0])
+    colors.append(r[0])
+    # print(np.argmax(r[0]))
+    colored_input[i][np.argmax(r[0])][:] = input[i]
+  
+  colored_input = colored_input.reshape(colored_input.shape[0], 3*28*28)
+
+  return (colored_input, np.array(colors))

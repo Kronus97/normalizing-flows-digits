@@ -8,6 +8,8 @@ import torch
 from torch import nn
 from torch import optim
 
+from datetime import date
+
 from utils import plot_loss_progress
 
 def build_flow(num_dim, hidden_features=1024, layers=5, batch_norm=False):
@@ -26,12 +28,11 @@ def build_flow(num_dim, hidden_features=1024, layers=5, batch_norm=False):
   return Flow(transform, base_dist)
 
 
-def build_cond_flow(num_dim, hidden_features=1024, layers=5, batch_norm=False):
-  """
-  Build a conditioned normalizing flow
-  """
+def build_cond_flow(num_dim, condition='digit', hidden_features=1024, layers=5, batch_norm=False):
+  posible_conditioning = { 'digit': 10, 'color': 3 }
+  context_features = posible_conditioning.get(condition, 1)
   base_dist = ConditionalDiagonalNormal(shape=[num_dim],
-                                        context_encoder=nn.Linear(1, 2 * num_dim))
+                                        context_encoder=nn.Linear(context_features, 2 * num_dim))
   transforms = []
   
   for _ in range(layers):
@@ -39,13 +40,13 @@ def build_cond_flow(num_dim, hidden_features=1024, layers=5, batch_norm=False):
     transforms.append(MaskedAffineAutoregressiveTransform(features=num_dim,
                                                           hidden_features=hidden_features,
                                                           use_batch_norm=batch_norm,
-                                                          context_features=1))
+                                                          context_features=context_features))
   
   transform = CompositeTransform(transforms)
   return Flow(transform, base_dist)
 
 
-def train(train_x, train_labels, train_loader, val_loader, maxepochs=1, monitor_every_batch=False, show_epoch_loss_progress=False, show_flow=False, weight_decay=None, conditional=False):
+def train(train_x, train_labels, train_loader, val_loader, maxepochs=1, monitor_every_batch=False, show_epoch_loss_progress=False, show_flow=False, weight_decay=None, conditional=False, conditioning_criteria='digit'):
   num_dim = train_x.shape[1]
   lr = 1.0e-4
   best_val_loss = float('inf')
@@ -53,7 +54,7 @@ def train(train_x, train_labels, train_loader, val_loader, maxepochs=1, monitor_
   progress_epoch = []
   progress_trn_loss = []
   progress_val_loss = []
-  flow = build_cond_flow(num_dim) if conditional else build_flow(num_dim)
+  flow = build_cond_flow(num_dim, condition=conditioning_criteria) if conditional else build_flow(num_dim)
 
   if torch.cuda.is_available():
     flow = flow.to(device)
@@ -69,8 +70,9 @@ def train(train_x, train_labels, train_loader, val_loader, maxepochs=1, monitor_
 
     t_loss = 0.0
     for x, y, l in train_loader:
+      # print(y[0])
       optimizer.zero_grad()
-      train_loss = -flow.log_prob(inputs=x, context=l.reshape(-1, 1)).mean() if conditional else -flow.log_prob(inputs=x).mean()
+      train_loss = -flow.log_prob(inputs=x, context=y).mean() if conditional else -flow.log_prob(inputs=x).mean()
       train_loss.backward()
       optimizer.step()
 
@@ -84,7 +86,7 @@ def train(train_x, train_labels, train_loader, val_loader, maxepochs=1, monitor_
     v_loss = 0.0
     with torch.no_grad():
       for x, y, l in val_loader:
-        val_loss = -flow.log_prob(inputs=x, context=l.reshape(-1, 1)).mean() if conditional else -flow.log_prob(inputs=x).mean()
+        val_loss = -flow.log_prob(inputs=x, context=y).mean() if conditional else -flow.log_prob(inputs=x).mean()
         v_loss = val_loss.cpu().detach().numpy() if torch.cuda.is_available() else val_loss.detach().numpy()
       
     progress_trn_loss.append(t_loss)
@@ -95,10 +97,10 @@ def train(train_x, train_labels, train_loader, val_loader, maxepochs=1, monitor_
 
     if best_val_loss > v_loss:
       best_val_loss = v_loss
-      # this uses the mounted google drive
-      torch.save(flow, "/content/drive/MyDrive/Colab Notebooks/MAF-MNIST-digit-cond-15-11-2021-best.pth")
+      today = date.today().strftime("%d-%m-%Y")
+      filename = "MAF-MNIST-{}-{}-best.pth".format(conditioning_criteria if conditional else '', today)
+      torch.save(flow, "/content/drive/MyDrive/Colab Notebooks/{}".format(filename))
       best_epoch = epoch
-
     
   if show_epoch_loss_progress:
     plot_loss_progress(progress_trn_loss, progress_val_loss, progress_epoch, best_epoch)
