@@ -6,7 +6,6 @@ from nflows.transforms.permutations import ReversePermutation
 
 import torch
 from torch import nn
-from torch import optim
 
 from datetime import date
 
@@ -46,24 +45,14 @@ def build_cond_flow(num_dim, condition='digit', hidden_features=1024, layers=5, 
   return Flow(transform, base_dist)
 
 
-def train(train_x, train_labels, train_loader, val_loader, maxepochs=1, monitor_every_batch=False, show_epoch_loss_progress=False, show_flow=False, weight_decay=None, conditional=False, conditioning_criteria='digit'):
-  num_dim = train_x.shape[1]
-  lr = 1.0e-4
+def train(flow, optimizer, train_loader, val_loader, patience=30, monitor_every_batch=False, show_epoch_loss_progress=False, show_flow=False, conditional=False, conditioning_criteria='digit'):
   best_val_loss = float('inf')
+  maxepochs = 999
   best_epoch = None
+  counter_step = 0
   progress_epoch = []
   progress_trn_loss = []
   progress_val_loss = []
-  flow = build_cond_flow(num_dim, condition=conditioning_criteria) if conditional else build_flow(num_dim)
-
-  if torch.cuda.is_available():
-    flow = flow.to(device)
-  
-  optimizer = optim.Adam(flow.parameters(),
-                         lr=lr,
-                         weight_decay=0 if weight_decay is None else weight_decay)
-
-  # scheduler = optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: min(1., epoch / 10))
 
   for epoch in range(1, maxepochs + 1):
     iter = 1
@@ -84,6 +73,7 @@ def train(train_x, train_labels, train_loader, val_loader, maxepochs=1, monitor_
       iter += 1
 
     v_loss = 0.0
+    flow.eval()
     with torch.no_grad():
       for x, y, l in val_loader:
         val_loss = -flow.log_prob(inputs=x, context=y).mean() if conditional else -flow.log_prob(inputs=x).mean()
@@ -101,6 +91,12 @@ def train(train_x, train_labels, train_loader, val_loader, maxepochs=1, monitor_
       filename = "MAF-MNIST-{}-{}-best.pth".format(conditioning_criteria if conditional else '', today)
       torch.save(flow, "/content/drive/MyDrive/Colab Notebooks/{}".format(filename))
       best_epoch = epoch
+      counter_step = 0
+    else:
+      if counter_step == patience - 1:
+        print('Stopped training after {} epochs'.format(epoch))
+        break
+      counter_step += 1
     
   if show_epoch_loss_progress:
     plot_loss_progress(progress_trn_loss, progress_val_loss, progress_epoch, best_epoch)

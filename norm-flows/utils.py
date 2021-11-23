@@ -4,6 +4,9 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 
+import torch
+from torch.utils.data import TensorDataset, DataLoader
+
 def load_data():
   """
   Load the mnist dataset
@@ -82,15 +85,6 @@ def plot_loss_progress(progress_trn_loss, progress_val_loss, progress_epoch, bes
   plt.show(block=False)
 
 
-def reshape_conditioned_vectors(inputs, outputs, labels):
-  cond_inputs = np.zeros((inputs.shape[0], outputs.shape[1], inputs.shape[1]))
-  for i in range(len(inputs))[:]:
-    cond_inputs[i][labels[i]][:] = inputs[i]
-  
-  flatten_cond_inputs = cond_inputs.reshape(cond_inputs.shape[0], 10*28*28)
-  return flatten_cond_inputs
-
-
 def color_features(input, randomize=False):
   np.random.seed(42)
   colors = []
@@ -110,3 +104,18 @@ def color_features(input, randomize=False):
   colored_input = colored_input.reshape(colored_input.shape[0], 3*28*28)
 
   return (colored_input, np.array(colors))
+
+
+def get_data_loader(data, batch_size, shuffle=True):
+  x = torch.tensor(data[0], dtype=torch.float32)
+  y = torch.tensor(data[1], dtype=torch.float32)
+  z = torch.tensor(data[2], dtype=torch.float32)
+
+  if torch.cuda.is_available():
+    x = x.cuda()
+    y = y.cuda()
+    z = z.cuda()
+
+  dataset = TensorDataset(x, y, z)
+  
+  return DataLoader(dataset, batch_size, shuffle, num_workers=0)

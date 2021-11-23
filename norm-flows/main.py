@@ -1,19 +1,14 @@
 import torch
 from torch import nn
 from torch import optim
-from torch.utils.data import TensorDataset, DataLoader
 
-from utils import load_vectorized_data, reshape_conditioned_vectors, color_features
-from flow import train
+from utils import load_vectorized_data, color_features, get_data_loader
+from flow import train, build_flow, build_cond_flow
 
 if torch.cuda.is_available():
   device = torch.device('cuda:0')
   torch.cuda.set_device(device)
 
-epochs = 50
-wd_rate = 1.0e-6
-conditioning_criteria = 'color'
-conditional = True
 
 # load data
 train_data, validation_data, test_data = load_vectorized_data()
@@ -30,41 +25,38 @@ test_x = test_data[0]
 test_labels = test_data[1]
 test_y = test_data[2]
 
+# parameters for simulation
+num_dim = train_x.shape[1]
+batch_size = 100
+weight_decay = 1.0e-6
+lr = 1.0e-4
+patience = 30
+conditioning_criteria = 'color'
+conditional = True
+
+# adjust for conditioning
 if conditioning_criteria == 'color':
-  (train_x, train_y) = color_features(train_x, randomize=True)
-  (val_x, val_y) = color_features(val_x, randomize=True)
+  (train_x, train_y) = color_features(train_x)
+  (val_x, val_y) = color_features(val_x)
 
-tt_train_x = torch.tensor(train_x, dtype=torch.float32)
-tt_train_y = torch.tensor(train_y, dtype=torch.float32)
-tt_train_labels = torch.tensor(train_labels, dtype=torch.float32)
+train_loader = get_data_loader((train_x, train_y, train_labels), batch_size)
+val_loader = get_data_loader((val_x, val_y, val_labels), batch_size)
 
-tt_val_x = torch.tensor(val_x, dtype=torch.float32)
-tt_val_y = torch.tensor(val_y, dtype=torch.float32)
-tt_val_labels = torch.tensor(val_labels, dtype=torch.float32)
+flow = build_cond_flow(num_dim, condition=conditioning_criteria) if conditional else build_flow(num_dim)
 
 if torch.cuda.is_available():
-  tt_train_x = tt_train_x.to(device)
-  tt_train_y = tt_train_y.to(device)
-  tt_train_labels = tt_train_labels.to(device)
+  flow = flow.to(device)
 
-  tt_val_x = tt_val_x.to(device)
-  tt_val_y = tt_val_y.to(device)
-  tt_val_labels = tt_val_labels.to(device)
-
-train_set = TensorDataset(tt_train_x, tt_train_y, tt_train_labels)
-val_set = TensorDataset(tt_val_x, tt_val_y, tt_val_labels)
-
-batch_size = 100
-train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=0)
-val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=0)
+optimizer = optim.Adam(flow.parameters(),
+                       lr=lr,
+                       weight_decay=0 if weight_decay is None else weight_decay)
 
 # train the model
-model = train(tt_train_x, 
-              train_labels, 
+model = train(flow,
+              optimizer,
               train_loader, 
               val_loader, 
-              maxepochs=epochs, 
-              weight_decay=wd_rate,
+              patience=patience,
               show_epoch_loss_progress=True,
-              conditional=conditional,
+              conditional=True,
               conditioning_criteria=conditioning_criteria)
